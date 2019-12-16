@@ -9,12 +9,16 @@ import Element.Input
 import Element.Font
 import Time
 import List.Extra
+import Element.Events
+import Events
 
 
 ---- MODEL ----
 type alias Model =
     {timer : Timer
-    , tasks : Tasks}
+    , tasks : Tasks
+    , newTaskName : String
+    }
 
 type alias Tasks = List Task
 type alias Task = {name : String, estimate : Maybe Minutes}
@@ -30,7 +34,7 @@ init : ( Model, Cmd Msg )
 init =
     ( initModel, Cmd.none )
 
-initModel = Model Preparation []
+initModel = Model Preparation [] ""
 
 countDownByOne : Model -> Model
 countDownByOne model =
@@ -51,7 +55,8 @@ countDownByOne model =
 type Msg
     = Start
     | UpdateTask Int Task
-    | CreateTask String
+    | CreateTask
+    | SetNewTaskName String
     | SecondPassed
 
 workLength = Minutes 25
@@ -66,20 +71,34 @@ update msg model =
             SecondPassed -> countDownByOne model
             Start -> {model | timer = Work (toSeconds workLength)}
             UpdateTask index task -> {model | tasks = List.Extra.setAt index task model.tasks}
-            CreateTask name -> {model | tasks = model.tasks ++ [{estimate = Nothing, name = name}]}
+            CreateTask ->
+                if String.isEmpty model.newTaskName
+                    then model
+                    else {model | tasks = model.tasks ++ [{estimate = Nothing, name = model.newTaskName}], newTaskName = ""}
+            SetNewTaskName name -> {model | newTaskName = name}
     in
         (mdl, Cmd.none)
 
 viewTask : Task -> Element.Element Task
 viewTask task =
         Element.row []
-            [ viewNamePicker task.name |> Element.map (\newTitle -> {task | name = newTitle})
+            [ viewTaskNamePicker task.name |> Element.map (\newTitle -> {task | name = newTitle})
             , viewTimePicker task.estimate |> Element.map (\newEstimate -> {task | estimate = newEstimate})
             ]
 
 
-viewNamePicker : String -> Element.Element String
-viewNamePicker title =
+viewNewTaskNamePicker : String -> Element.Element Msg
+viewNewTaskNamePicker newTaskName =
+    Element.Input.text
+        [Events.onEnterKeyDown CreateTask]
+        { onChange = SetNewTaskName
+        , label = Element.Input.labelLeft [] (Element.text "Add Task:")
+        , placeholder = Nothing
+        , text = newTaskName
+        }
+
+viewTaskNamePicker : String -> Element.Element String
+viewTaskNamePicker title =
     Element.Input.text
         []
         { onChange = identity
@@ -88,14 +107,30 @@ viewNamePicker title =
         , text = title
         }
 
-startButton = Element.Input.button [] {label = Element.text "start", onPress = Just Start}
+startButton = Element.Input.button [Element.padding 15, lightGreyBackground] {label = Element.text "start", onPress = Just Start}
 
 viewTimePicker : Maybe Minutes -> Element.Element (Maybe Minutes)
 viewTimePicker estimate =
-    case estimate of
-        Just (Minutes n) -> Element.text (String.fromInt n)
-        Nothing -> Element.text "no estimate set"
+    let
+        viewTimeOption t =
+            let
+                isSelected = estimate == (Just (Minutes t))
+                selectedStyle =
+                    if isSelected
+                        then [lightGreyBackground]
+                        else []
+                onClick = Element.Events.onClick (if isSelected then Nothing else Just (Minutes t))
+            in
+            Element.el
+                (onClick :: Element.padding 10 :: selectedStyle)
+                (Element.text <| String.fromInt t)
 
+    in
+        List.map viewTimeOption timeOptions
+        |> Element.row [Element.spacing 5]
+
+timeOptions = [5, 10, 15, 20, 25]
+lightGreyBackground = Element.Background.color (Element.rgba 0 0 0 0.05)
 
 ---- VIEW ----
 
@@ -110,31 +145,33 @@ viewTimer model =
         timer = model.timer
     in
         case timer of
-            Preparation -> viewPreparation model.tasks
+            Preparation -> viewPreparation model
             Work secondsRemaining -> Element.column [redBackground] [Element.text <| viewTime secondsRemaining]
             Break secondsRemaining -> Element.column [greenBackground] [Element.text <| viewTime secondsRemaining]
 
-viewPreparation : Tasks -> Element.Element Msg
-viewPreparation tasks =
+viewPreparation : Model  -> Element.Element Msg
+viewPreparation model=
     let
         instructions = Element.text "Jot down your todos"
     in
         Element.column [] [
             instructions
-          , viewTasks tasks
+          , viewTasks model
           , startButton
         ]
 
-viewTasks tasks =
+viewTasks : Model -> Element.Element Msg
+viewTasks model =
     let
+        tasks = model.tasks
         listing =
             List.indexedMap (\i task -> viewTask task |> Element.map (UpdateTask i)) tasks
 
         -- Once the user gives the task a name, it's added to our list
-        newTask = viewNamePicker ""
-            |> Element.map CreateTask
+        newTaskName = viewNewTaskNamePicker model.newTaskName
+        newTaskButton = Element.Input.button [Element.padding 15, lightGreyBackground] {onPress = Just CreateTask, label = Element.text "Create Task"}
     in
-        Element.column [] (listing ++ [newTask])
+        Element.column [lightGreyBackground , Element.padding 10, Element.spacing 15] (listing ++ [newTaskName, newTaskButton])
 
 interFont =
     Element.Font.family [ Element.Font.typeface "Inter", Element.Font.sansSerif ]
